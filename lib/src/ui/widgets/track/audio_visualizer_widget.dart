@@ -17,18 +17,20 @@ class AudioVisualizerWidgetOptions {
   final double maxHeight;
   final int durationInMilliseconds;
   final Color? color;
+  final List<Color>? colors;
   final double spacing;
   final double cornerRadius;
   final double barMinOpacity;
 
   const AudioVisualizerWidgetOptions({
-    this.barCount = 7,
+    this.barCount = 5,
     this.centeredBands = true,
     this.width = 12,
     this.minHeight = 12,
     this.maxHeight = 100,
     this.durationInMilliseconds = 500,
     this.color,
+    this.colors,
     this.spacing = 5,
     this.cornerRadius = 9999,
     this.barMinOpacity = 0.2,
@@ -45,6 +47,7 @@ class AudioVisualizerWidgetOptions {
         other.maxHeight == maxHeight &&
         other.durationInMilliseconds == durationInMilliseconds &&
         other.color == color &&
+        const ListEquality<Color>().equals(other.colors, colors) &&
         other.spacing == spacing &&
         other.cornerRadius == cornerRadius &&
         other.barMinOpacity == barMinOpacity;
@@ -60,6 +63,7 @@ class AudioVisualizerWidgetOptions {
       maxHeight,
       durationInMilliseconds,
       color,
+      colors == null ? 0 : Object.hashAll(colors!),
       spacing,
       cornerRadius,
       barMinOpacity,
@@ -68,7 +72,8 @@ class AudioVisualizerWidgetOptions {
 }
 
 extension _ComputeExt on AudioVisualizerWidgetOptions {
-  Color computeColor(BuildContext ctx) => color ?? Theme.of(ctx).colorScheme.primary;
+  Color computeColor(BuildContext ctx) =>
+      color ?? Theme.of(ctx).colorScheme.primary;
 }
 
 class AudioVisualizerWidget extends StatelessWidget {
@@ -83,7 +88,9 @@ class AudioVisualizerWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Consumer<TrackReferenceContext?>(
-        builder: (BuildContext context, TrackReferenceContext? trackCtx, Widget? child) => Container(
+        builder: (BuildContext context, TrackReferenceContext? trackCtx,
+                Widget? child) =>
+            Container(
           color: backgroundColor,
           child: SoundWaveformWidget(
             audioTrack: trackCtx?.audioTrack,
@@ -112,7 +119,8 @@ class SoundWaveformWidget extends StatefulWidget {
 
 const agentStateAttributeKey = 'lk.agent.state';
 
-class _SoundWaveformWidgetState extends State<SoundWaveformWidget> with SingleTickerProviderStateMixin {
+class _SoundWaveformWidgetState extends State<SoundWaveformWidget>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _pulseAnimation;
   List<double> samples = [];
@@ -121,18 +129,17 @@ class _SoundWaveformWidgetState extends State<SoundWaveformWidget> with SingleTi
   sdk.EventsListener<sdk.AudioVisualizerEvent>? _visualizerListener;
   sdk.EventsListener<sdk.ParticipantEvent>? _participantListener;
 
-  // Agent support
-  sdk.AgentState _agentState = sdk.AgentState.INITIALIZING;
+  sdk.AgentState _agentState = sdk.AgentState.initializing;
 
   @override
   void didUpdateWidget(SoundWaveformWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final didUpdateParams = oldWidget.participant?.sid != widget.participant?.sid ||
-        oldWidget.audioTrack?.sid != widget.audioTrack?.sid ||
-        oldWidget.options != widget.options;
+    final didUpdateParams =
+        oldWidget.participant?.sid != widget.participant?.sid ||
+            oldWidget.audioTrack?.sid != widget.audioTrack?.sid ||
+            oldWidget.options != widget.options;
 
     if (didUpdateParams) {
-      // Re-attach listeners
       _detachListeners();
       _attachListeners();
     }
@@ -148,13 +155,13 @@ class _SoundWaveformWidgetState extends State<SoundWaveformWidget> with SingleTi
         });
       });
 
-      // If participant is agent, listen to agent state changes
       if (widget.participant?.kind == sdk.ParticipantKind.AGENT) {
         _participantListener?.on<sdk.ParticipantAttributesChanged>((e) {
           if (!mounted) return;
           final agentAttributes = sdk.AgentAttributes.fromJson(e.attributes);
           setState(() {
-            _agentState = agentAttributes.lkAgentState ?? sdk.AgentState.INITIALIZING;
+            _agentState =
+                agentAttributes.lkAgentState ?? sdk.AgentState.initializing;
           });
         });
       }
@@ -163,7 +170,8 @@ class _SoundWaveformWidgetState extends State<SoundWaveformWidget> with SingleTi
     if (widget.audioTrack != null) {
       _visualizer = sdk.createVisualizer(widget.audioTrack!,
           options: sdk.AudioVisualizerOptions(
-              barCount: widget.options.barCount, centeredBands: widget.options.centeredBands));
+              barCount: widget.options.barCount,
+              centeredBands: widget.options.centeredBands));
       _visualizerListener = _visualizer?.createListener();
       _visualizerListener?.on<sdk.AudioVisualizerEvent>((e) {
         if (!mounted) return;
@@ -215,23 +223,8 @@ class _SoundWaveformWidgetState extends State<SoundWaveformWidget> with SingleTi
     super.dispose();
   }
 
-  Color _getColorForThinkingState(BuildContext context, int index, int activeIndex) {
-    final distance = (index - activeIndex).abs();
-    final maxDistance = samples.length / 4;
-    final gradientStrength = (1.0 - (distance / maxDistance)).clamp(0.0, 1.0);
-    final alpha = widget.options.barMinOpacity + (gradientStrength * (1.0 - widget.options.barMinOpacity));
-
-    return widget.options.computeColor(context).withValues(alpha: alpha);
-  }
-
-  Color _getColorForListeningState(BuildContext context, int index, int centerIndex) {
-    const baseAlpha = 0.1;
-    final alpha = index == centerIndex ? baseAlpha + (_pulseAnimation.value - baseAlpha) : baseAlpha;
-
-    return widget.options.computeColor(context).withValues(alpha: alpha);
-  }
-
-  List<BarsViewItem> _createBarsViewItems(int length, Color Function(int) colorProvider) {
+  List<BarsViewItem> _createBarsViewItems(
+      int length, Color Function(int) colorProvider) {
     return List.generate(
         length,
         (i) => BarsViewItem(
@@ -240,50 +233,25 @@ class _SoundWaveformWidgetState extends State<SoundWaveformWidget> with SingleTi
             ));
   }
 
-  List<BarsViewItem> _generateElements(BuildContext context, VisualizerState state) {
+  List<BarsViewItem> _generateElements(BuildContext context) {
+    final colors = widget.options.colors;
     final baseColor = widget.options.computeColor(context);
-    final centerIndex = (samples.length / 2).floor();
 
-    switch (state) {
-      case VisualizerState.thinking:
-        final activeIndex = (_pulseAnimation.value * (samples.length - 1)).round();
-        return _createBarsViewItems(samples.length, (i) => _getColorForThinkingState(context, i, activeIndex));
-
-      case VisualizerState.listening:
-        return _createBarsViewItems(samples.length, (i) => _getColorForListeningState(context, i, centerIndex));
-
-      case VisualizerState.active:
-        return _createBarsViewItems(samples.length, (_) => baseColor);
-    }
-  }
-
-  VisualizerState _determineState() {
-    if (widget.participant?.kind == sdk.ParticipantKind.AGENT && _agentState == sdk.AgentState.THINKING) {
-      return VisualizerState.thinking;
-    }
-
-    if (widget.participant == null ||
-        widget.participant?.kind == sdk.ParticipantKind.AGENT &&
-            (_agentState == sdk.AgentState.INITIALIZING || _agentState == sdk.AgentState.LISTENING)) {
-      return VisualizerState.listening;
-    }
-
-    return VisualizerState.active;
+    return _createBarsViewItems(samples.length, (i) {
+      if (colors != null && colors.isNotEmpty) {
+        return colors[i % colors.length];
+      }
+      return baseColor;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _pulseAnimation,
-      builder: (ctx, _) {
-        final state = _determineState();
-        final elements = _generateElements(ctx, state);
+    final elements = _generateElements(context);
 
-        return BarsView(
-          options: widget.options,
-          elements: elements,
-        );
-      },
+    return BarsView(
+      options: widget.options,
+      elements: elements,
     );
   }
 }
@@ -311,10 +279,12 @@ class BarsView extends StatelessWidget {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
         builder: (context, constraints) {
-          final delta = (constraints.maxWidth / elements.length) - options.spacing;
+          final delta =
+              (constraints.maxWidth / elements.length) - options.spacing;
 
           return Row(
             mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
             spacing: options.spacing,
             children: elements
                 .mapIndexed(
@@ -322,12 +292,18 @@ class BarsView extends StatelessWidget {
                     flex: 1,
                     fit: FlexFit.tight,
                     child: AnimatedContainer(
-                      duration: Duration(milliseconds: options.durationInMilliseconds ~/ options.barCount),
+                      duration: Duration(
+                          milliseconds: options.durationInMilliseconds ~/
+                              options.barCount),
                       decoration: BoxDecoration(
                         color: element.color,
-                        borderRadius: BorderRadius.circular(options.cornerRadius),
+                        borderRadius:
+                            BorderRadius.circular(options.cornerRadius),
                       ),
-                      height: max(delta, (element.value * (constraints.maxHeight - delta)) + delta),
+                      height: max(
+                          delta,
+                          (element.value * (constraints.maxHeight - delta)) +
+                              delta),
                     ),
                   ),
                 )
